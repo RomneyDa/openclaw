@@ -7,7 +7,6 @@ import {
 import {
   isRuntimeParityCellPassable,
   type RuntimeId,
-  type RuntimeParityCell,
   type RuntimeParityDrift,
   type RuntimeParityResult,
 } from "./runtime-parity.js";
@@ -22,7 +21,7 @@ import type { QaSeedScenarioWithSource } from "./scenario-catalog.js";
 
 type QaToolCoverageSuiteScenario = {
   name: string;
-  status: "pass" | "fail";
+  status: "pass" | "fail" | "skip";
   runtimeParity?: RuntimeParityResult;
 };
 
@@ -33,7 +32,7 @@ export type QaToolCoverageSuiteSummary = {
   };
 };
 
-type QaToolCoverageStatus = "pass" | "fail" | "missing" | "not-run";
+type QaToolCoverageStatus = "pass" | "fail" | "skip" | "missing" | "not-run";
 type QaToolCoverageDrift = RuntimeParityDrift | "not-run";
 type QaToolCoverageBucket = QaRuntimeToolBucket;
 
@@ -52,6 +51,8 @@ type QaToolCoverageRow = {
   drift: QaToolCoverageDrift;
   openclawToolCalls: number;
   codexToolCalls: number;
+  openclawSuccessfulToolCalls: number;
+  codexSuccessfulToolCalls: number;
   tracking?: string;
   codexDefaultImpact?: string;
   qaImpact?: string;
@@ -94,11 +95,22 @@ function normalizeRuntimePair(
   return ["openclaw", "codex"];
 }
 
-function cellStatus(cell: RuntimeParityCell | undefined): QaToolCoverageStatus {
+function cellStatus(
+  cell: RuntimeParityResult["cells"][RuntimeId] | undefined,
+): QaToolCoverageStatus {
   if (!cell) {
     return "missing";
   }
-  return isRuntimeParityCellPassable(cell) ? "pass" : "fail";
+  if (!isRuntimeParityCellPassable(cell)) {
+    return "fail";
+  }
+  if (cell.status === "skip") {
+    return "skip";
+  }
+  if (cell.status === "fail") {
+    return "fail";
+  }
+  return cell.status === "pass" ? "pass" : "fail";
 }
 
 function toolIdsForScenario(scenario: QaSeedScenarioWithSource): string[] {
@@ -195,6 +207,20 @@ function countRuntimeToolCalls(
   return cell.toolCalls.filter((call) => call.tool === toolName).length;
 }
 
+function countSuccessfulRuntimeToolCalls(
+  result: RuntimeParityResult | undefined,
+  runtime: RuntimeId,
+  toolName: string | undefined,
+) {
+  if (!result || !toolName) {
+    return 0;
+  }
+  const cell = runtime === "openclaw" ? result.cells.openclaw : result.cells.codex;
+  return cell.toolCalls.filter(
+    (call) => call.tool === toolName && !call.errorClass && call.resultHash.trim().length > 0,
+  ).length;
+}
+
 function buildRow(params: {
   group: ToolFixtureGroup;
   results: ReadonlyMap<string, RuntimeParityResult>;
@@ -226,6 +252,12 @@ function buildRow(params: {
     drift: result?.drift ?? "not-run",
     openclawToolCalls: countRuntimeToolCalls(result, "openclaw", runtimeToolName),
     codexToolCalls: countRuntimeToolCalls(result, "codex", runtimeToolName),
+    openclawSuccessfulToolCalls: countSuccessfulRuntimeToolCalls(
+      result,
+      "openclaw",
+      runtimeToolName,
+    ),
+    codexSuccessfulToolCalls: countSuccessfulRuntimeToolCalls(result, "codex", runtimeToolName),
     ...(tracking ? { tracking } : {}),
     ...(rowMetadata.codexDefaultImpact
       ? { codexDefaultImpact: rowMetadata.codexDefaultImpact }
@@ -237,7 +269,7 @@ function buildRow(params: {
 }
 
 function coverageFailureForRow(row: QaToolCoverageRow): string | undefined {
-  if (!row.required || row.tracking) {
+  if (!row.required) {
     return undefined;
   }
   if (row.drift === "not-run") {
@@ -249,11 +281,11 @@ function coverageFailureForRow(row: QaToolCoverageRow): string | undefined {
   if (row.drift === "failure-mode") {
     return `${row.tool} drift=failure-mode${row.details ? ` (${row.details})` : ""}`;
   }
-  if (row.runtimeToolName && row.openclawToolCalls === 0) {
-    return `${row.tool} missing openclaw tool call ${row.runtimeToolName}`;
+  if (row.runtimeToolName && row.openclawSuccessfulToolCalls === 0) {
+    return `${row.tool} missing successful openclaw tool call/result ${row.runtimeToolName}`;
   }
-  if (row.runtimeToolName && row.codexToolCalls === 0) {
-    return `${row.tool} missing codex tool call ${row.runtimeToolName}`;
+  if (row.runtimeToolName && row.codexSuccessfulToolCalls === 0) {
+    return `${row.tool} missing successful codex tool call/result ${row.runtimeToolName}`;
   }
   return undefined;
 }

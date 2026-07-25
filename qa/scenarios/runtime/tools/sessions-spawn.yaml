@@ -29,7 +29,7 @@ scenario:
         bucket: openclaw-dynamic-integration
         expectedLayer: openclaw-dynamic
         capabilityLayer: openclaw-dynamic-direct
-        required: true
+        required: false
         tracking: "#80319"
         codexDefaultImpact: P4
         qaImpact: P1

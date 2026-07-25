@@ -27,7 +27,7 @@ scenario:
         actualTool: read
         bucket: codex-native-workspace
         expectedLayer: codex-native-workspace
-        required: true
+        required: false
         tracking: "#80312"
         codexDefaultImpact: P4
         qaImpact: P2

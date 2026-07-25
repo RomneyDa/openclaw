@@ -58,11 +58,44 @@ function formatRuntimeParityCellDetails(cell: RuntimeParityCell) {
   ].join(" ");
 }
 
+function formatRuntimeParityScenarioCellDetails(cell: RuntimeParityResult["cells"][RuntimeId]) {
+  return [cell.details, formatRuntimeParityCellDetails(cell)].filter(Boolean).join("\n");
+}
+
+function runtimeParityScenarioStepStatus(
+  cell: Pick<
+    RuntimeParityResult["cells"][RuntimeId],
+    "runtimeErrorClass" | "status" | "transportErrorClass"
+  >,
+) {
+  if (cell.status === "fail" || cell.runtimeErrorClass || cell.transportErrorClass) {
+    return "fail";
+  }
+  if (cell.status === "skip") {
+    return "skip";
+  }
+  return "pass";
+}
+
+function runtimeParityScenarioResultStatus(result: RuntimeParityResult) {
+  const cellStatuses = new Set([
+    runtimeParityScenarioStepStatus(result.cells.openclaw),
+    runtimeParityScenarioStepStatus(result.cells.codex),
+  ]);
+  if (cellStatuses.has("fail")) {
+    return "fail";
+  }
+  if (cellStatuses.has("skip")) {
+    return "skip";
+  }
+  return isRuntimeParityPass(result) ? "pass" : "fail";
+}
+
 function buildRuntimeParityScenarioResult(params: {
   scenarioName: string;
   result: RuntimeParityResult;
 }): QaSuiteScenarioResult {
-  const driftStepStatus = isRuntimeParityPass(params.result) ? "pass" : "fail";
+  const driftStepStatus = runtimeParityScenarioResultStatus(params.result);
   const openclawCell = params.result.cells.openclaw;
   return {
     name: params.scenarioName,
@@ -71,18 +104,13 @@ function buildRuntimeParityScenarioResult(params: {
     steps: [
       {
         name: openclawCell.runtime,
-        status:
-          openclawCell.runtimeErrorClass || openclawCell.transportErrorClass ? "fail" : "pass",
-        details: formatRuntimeParityCellDetails(openclawCell),
+        status: runtimeParityScenarioStepStatus(openclawCell),
+        details: formatRuntimeParityScenarioCellDetails(openclawCell),
       },
       {
         name: params.result.cells.codex.runtime,
-        status:
-          params.result.cells.codex.runtimeErrorClass ||
-          params.result.cells.codex.transportErrorClass
-            ? "fail"
-            : "pass",
-        details: formatRuntimeParityCellDetails(params.result.cells.codex),
+        status: runtimeParityScenarioStepStatus(params.result.cells.codex),
+        details: formatRuntimeParityScenarioCellDetails(params.result.cells.codex),
       },
       {
         name: "runtime drift",
@@ -252,8 +280,8 @@ export async function runQaRuntimeParitySuite(params: {
               bootStateLines: [],
             } satisfies RuntimeParityCell;
             return {
-              scenarioStatus: scenarioResult.status === "pass" ? "pass" : "fail",
-              scenarioDetails: scenarioResult.details,
+              status: scenarioResult.status,
+              details: scenarioResult.details,
               cell: cellResult.runtimeParityCell ?? fallbackCell,
             };
           },
@@ -344,3 +372,9 @@ export async function runQaRuntimeParitySuite(params: {
     }
   }
 }
+
+export const qaSuiteRuntimeParityTesting = {
+  formatRuntimeParityScenarioCellDetails,
+  runtimeParityScenarioResultStatus,
+  runtimeParityScenarioStepStatus,
+};

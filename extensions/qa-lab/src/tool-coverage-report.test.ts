@@ -48,6 +48,45 @@ function readToolCoverageConfig(config: Record<string, unknown>): Record<string,
     : {};
 }
 
+function makeSkippedWebFetchSummary(runtimeErrorClass?: string) {
+  return {
+    scenarios: [
+      {
+        name: "tool web_fetch",
+        status: "skip" as const,
+        runtimeParity: {
+          scenarioId: "tool-web-fetch",
+          drift: "failure-mode" as const,
+          driftDetails: "runtime-pair cell status differs (pass vs skip)",
+          cells: {
+            openclaw: {
+              runtime: "openclaw" as const,
+              status: "pass" as const,
+              transcriptBytes: "",
+              toolCalls: [{ tool: "web_fetch", argsHash: "a", resultHash: "ok" }],
+              finalText: "",
+              usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+              wallClockMs: 1,
+              bootStateLines: [],
+            },
+            codex: {
+              runtime: "codex" as const,
+              status: "skip" as const,
+              transcriptBytes: "",
+              toolCalls: [{ tool: "web_fetch", argsHash: "a", resultHash: "ok" }],
+              finalText: "",
+              usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+              wallClockMs: 1,
+              bootStateLines: [],
+              ...(runtimeErrorClass ? { runtimeErrorClass } : {}),
+            },
+          },
+        },
+      },
+    ],
+  };
+}
+
 describe("qa tool coverage report", () => {
   it("derives tool fixture rows from tool coverage metadata", () => {
     const report = buildQaToolCoverageReport({
@@ -149,6 +188,7 @@ describe("qa tool coverage report", () => {
               cells: {
                 openclaw: {
                   runtime: "openclaw",
+                  status: "pass",
                   transcriptBytes: "",
                   toolCalls: [{ tool: "read", argsHash: "a", resultHash: "r" }],
                   finalText: "",
@@ -158,6 +198,7 @@ describe("qa tool coverage report", () => {
                 },
                 codex: {
                   runtime: "codex",
+                  status: "pass",
                   transcriptBytes: "",
                   toolCalls: [{ tool: "read", argsHash: "a", resultHash: "r" }],
                   finalText: "",
@@ -178,6 +219,7 @@ describe("qa tool coverage report", () => {
               cells: {
                 openclaw: {
                   runtime: "openclaw",
+                  status: "pass",
                   transcriptBytes: "",
                   toolCalls: [{ tool: "write", argsHash: "a", resultHash: "r1" }],
                   finalText: "",
@@ -187,6 +229,7 @@ describe("qa tool coverage report", () => {
                 },
                 codex: {
                   runtime: "codex",
+                  status: "pass",
                   transcriptBytes: "",
                   toolCalls: [{ tool: "write", argsHash: "a", resultHash: "r2" }],
                   finalText: "",
@@ -239,6 +282,7 @@ describe("qa tool coverage report", () => {
               cells: {
                 openclaw: {
                   runtime: "openclaw",
+                  status: "pass",
                   transcriptBytes: "",
                   toolCalls: [],
                   finalText: "",
@@ -248,6 +292,7 @@ describe("qa tool coverage report", () => {
                 },
                 codex: {
                   runtime: "codex",
+                  status: "pass",
                   transcriptBytes: "",
                   toolCalls: [{ tool: "optional", argsHash: "a", resultHash: "r" }],
                   finalText: "",
@@ -299,6 +344,7 @@ describe("qa tool coverage report", () => {
               cells: {
                 openclaw: {
                   runtime: "openclaw",
+                  status: "pass",
                   transcriptBytes: "",
                   toolCalls: [{ tool: "web_search", argsHash: "a", resultHash: "r" }],
                   finalText: "",
@@ -308,6 +354,7 @@ describe("qa tool coverage report", () => {
                 },
                 codex: {
                   runtime: "codex",
+                  status: "pass",
                   transcriptBytes: "",
                   toolCalls: [],
                   finalText: "",
@@ -362,6 +409,7 @@ describe("qa tool coverage report", () => {
               cells: {
                 openclaw: {
                   runtime: "openclaw",
+                  status: "pass",
                   transcriptBytes: "",
                   toolCalls: [{ tool: "web_search", argsHash: "a", resultHash: "r1" }],
                   finalText: "",
@@ -371,6 +419,7 @@ describe("qa tool coverage report", () => {
                 },
                 codex: {
                   runtime: "codex",
+                  status: "pass",
                   transcriptBytes: "",
                   toolCalls: [{ tool: "web_search", argsHash: "a", resultHash: "r2" }],
                   finalText: "",
@@ -416,6 +465,7 @@ describe("qa tool coverage report", () => {
               cells: {
                 openclaw: {
                   runtime: "openclaw",
+                  status: "pass",
                   transcriptBytes: "",
                   toolCalls: [{ tool: "web_search", argsHash: "a", resultHash: "r1" }],
                   finalText: "",
@@ -425,6 +475,7 @@ describe("qa tool coverage report", () => {
                 },
                 codex: {
                   runtime: "codex",
+                  status: "pass",
                   transcriptBytes: "",
                   toolCalls: [{ tool: "web_search", argsHash: "a", resultHash: "r2" }],
                   finalText: "",
@@ -476,6 +527,7 @@ describe("qa tool coverage report", () => {
               cells: {
                 openclaw: {
                   runtime: "openclaw",
+                  status: "pass",
                   transcriptBytes: "",
                   toolCalls: [{ tool: "web_search", argsHash: "a", resultHash: "r" }],
                   finalText: "",
@@ -485,6 +537,7 @@ describe("qa tool coverage report", () => {
                 },
                 codex: {
                   runtime: "codex",
+                  status: "pass",
                   transcriptBytes: "",
                   toolCalls: [],
                   finalText: "",
@@ -501,7 +554,148 @@ describe("qa tool coverage report", () => {
     });
 
     expect(report.pass).toBe(false);
-    expect(report.failures).toEqual(["web-search missing codex tool call web_search"]);
+    expect(report.failures).toEqual([
+      "web-search missing successful codex tool call/result web_search",
+    ]);
+  });
+
+  it("does not count error or unlinked results as successful required tool evidence", () => {
+    const report = buildQaToolCoverageReport({
+      scenarios: [
+        makeScenario("tool-web-search", "web-search", {
+          toolName: "web_search",
+          toolCoverage: {
+            bucket: "openclaw-dynamic-integration",
+            expectedLayer: "openclaw-dynamic",
+            capabilityLayer: "openclaw-dynamic-direct",
+            required: true,
+          },
+        }),
+      ],
+      summary: {
+        scenarios: [
+          {
+            name: "tool web_search",
+            status: "fail",
+            runtimeParity: {
+              scenarioId: "tool-web-search",
+              drift: "tool-result-shape",
+              cells: {
+                openclaw: {
+                  runtime: "openclaw",
+                  status: "pass",
+                  transcriptBytes: "",
+                  toolCalls: [{ tool: "web_search", argsHash: "a", resultHash: "ok" }],
+                  finalText: "",
+                  usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+                  wallClockMs: 1,
+                  bootStateLines: [],
+                },
+                codex: {
+                  runtime: "codex",
+                  status: "pass",
+                  transcriptBytes: "",
+                  toolCalls: [
+                    {
+                      tool: "web_search",
+                      argsHash: "a",
+                      resultHash: "error",
+                      errorClass: "tool-result-error",
+                    },
+                    {
+                      tool: "web_search",
+                      argsHash: "b",
+                      resultHash: "",
+                    },
+                  ],
+                  finalText: "",
+                  usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+                  wallClockMs: 1,
+                  bootStateLines: [],
+                },
+              },
+            },
+          },
+        ],
+      },
+      generatedAt: "2026-05-10T00:00:00.000Z",
+    });
+
+    expect(report.pass).toBe(false);
+    expect(report.rows[0]).toMatchObject({
+      codexToolCalls: 2,
+      codexSuccessfulToolCalls: 0,
+    });
+    expect(report.failures).toEqual([
+      "web-search missing successful codex tool call/result web_search",
+    ]);
+  });
+
+  it("projects skipped runtime execution as non-passing coverage", () => {
+    const report = buildQaToolCoverageReport({
+      scenarios: [
+        makeScenario("tool-web-fetch", "web-fetch", {
+          toolName: "web_fetch",
+          toolCoverage: {
+            bucket: "openclaw-dynamic-integration",
+            expectedLayer: "openclaw-dynamic",
+            capabilityLayer: "openclaw-dynamic-direct",
+            required: true,
+          },
+        }),
+      ],
+      summary: makeSkippedWebFetchSummary(),
+      generatedAt: "2026-05-10T00:00:00.000Z",
+    });
+
+    expect(report.pass).toBe(false);
+    expect(report.rows[0]).toMatchObject({ openclaw: "pass", codex: "skip" });
+    expect(report.failures).toEqual(["web-fetch status openclaw=pass codex=skip"]);
+  });
+
+  it("does not let skipped execution hide a runtime cell failure", () => {
+    const report = buildQaToolCoverageReport({
+      scenarios: [
+        makeScenario("tool-web-fetch", "web-fetch", {
+          toolName: "web_fetch",
+          toolCoverage: {
+            bucket: "openclaw-dynamic-integration",
+            expectedLayer: "openclaw-dynamic",
+            capabilityLayer: "openclaw-dynamic-direct",
+            required: true,
+          },
+        }),
+      ],
+      summary: makeSkippedWebFetchSummary("capture-missing"),
+      generatedAt: "2026-05-10T00:00:00.000Z",
+    });
+
+    expect(report.rows[0]).toMatchObject({ openclaw: "pass", codex: "fail" });
+    expect(report.failures).toEqual(["web-fetch status openclaw=pass codex=fail"]);
+  });
+
+  it("fails closed when a decoded result cell omits its required status", () => {
+    const summary = makeSkippedWebFetchSummary();
+    delete (summary.scenarios[0]!.runtimeParity.cells.codex as { status?: string }).status;
+    const report = buildQaToolCoverageReport({
+      scenarios: [
+        makeScenario("tool-web-fetch", "web-fetch", {
+          toolName: "web_fetch",
+          toolCoverage: {
+            bucket: "openclaw-dynamic-integration",
+            expectedLayer: "openclaw-dynamic",
+            capabilityLayer: "openclaw-dynamic-direct",
+            required: true,
+          },
+        }),
+      ],
+      summary,
+      generatedAt: "2026-05-10T00:00:00.000Z",
+    });
+
+    expect(report.pass).toBe(false);
+    expect(report.rows[0]).toMatchObject({ openclaw: "pass", codex: "fail" });
+    expect(report.failures).toEqual(["web-fetch status openclaw=pass codex=fail"]);
   });
 
   it("fails required OpenClaw dynamic tool coverage when the fixture failure mode is preserved", () => {
@@ -529,6 +723,7 @@ describe("qa tool coverage report", () => {
               cells: {
                 openclaw: {
                   runtime: "openclaw",
+                  status: "pass",
                   transcriptBytes: "",
                   toolCalls: [{ tool: "web_search", argsHash: "a", resultHash: "r" }],
                   finalText: "",
@@ -538,6 +733,7 @@ describe("qa tool coverage report", () => {
                 },
                 codex: {
                   runtime: "codex",
+                  status: "pass",
                   transcriptBytes: "",
                   toolCalls: [{ tool: "web_search", argsHash: "a", resultHash: "r" }],
                   finalText: "",
@@ -636,7 +832,7 @@ describe("qa tool coverage report", () => {
       expect.objectContaining({
         bucket: "codex-native-workspace",
         expectedLayer: "codex-native-workspace",
-        required: true,
+        required: false,
       }),
     );
     expect(applyPatchRow).toEqual(
@@ -647,7 +843,7 @@ describe("qa tool coverage report", () => {
     );
     expect(report.rows.find((row) => row.tool === "sessions_spawn")).toEqual(
       expect.objectContaining({
-        required: true,
+        required: false,
         tracking: expect.stringContaining("#80319"),
         action: expect.stringContaining("report-only"),
       }),
