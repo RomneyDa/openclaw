@@ -685,6 +685,7 @@ describe("qa tool coverage report", () => {
       codexToolCalls: 2,
       codexSuccessfulToolCalls: 0,
     });
+    expect(report.passingTools).toBe(0);
     expect(report.failures).toEqual([
       "web-search missing successful codex tool call/result web_search",
     ]);

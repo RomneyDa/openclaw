@@ -191,10 +191,6 @@ function mergeScenarioResults(
   return failingResult;
 }
 
-function isPassingToolCoverageDrift(drift: QaToolCoverageDrift, evaluated: boolean) {
-  return PASSING_DRIFTS.has(drift) || (!evaluated && drift === "not-run");
-}
-
 function countRuntimeToolCalls(
   result: RuntimeParityResult | undefined,
   runtime: RuntimeId,
@@ -323,13 +319,7 @@ export function buildQaToolCoverageReport(params: {
     ).length,
     optionalTools: rows.filter((row) => row.bucket === "optional-profile-or-plugin").length,
     passingTools: evaluated
-      ? rows.filter(
-          (row) =>
-            row.required &&
-            row.openclaw === "pass" &&
-            row.codex === "pass" &&
-            (isPassingToolCoverageDrift(row.drift, true) || !coverageFailureForRow(row)),
-        ).length
+      ? rows.filter((row) => row.required && !coverageFailureForRow(row)).length
       : 0,
     failingTools: failures.length,
     rows,
