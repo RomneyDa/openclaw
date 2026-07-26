@@ -5,7 +5,7 @@ scenario:
   surface: runtime-tools
   runtimePairLane: core
   coverage:
-    primary:
+    secondary:
       - tools.exec-routing-bash
   objective: Verify shell command behavior is tracked across OpenClaw and Codex while Codex owns exec/process natively.
   successCriteria:

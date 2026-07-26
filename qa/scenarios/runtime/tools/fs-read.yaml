@@ -5,7 +5,7 @@ scenario:
   surface: runtime-tools
   runtimePairLane: core
   coverage:
-    primary:
+    secondary:
       - agent-runtime.tool-fs-read
   objective: Verify file read behavior is tracked across OpenClaw and Codex while Codex owns read natively.
   successCriteria:

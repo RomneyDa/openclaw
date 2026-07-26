@@ -313,7 +313,7 @@ export function buildQaToolCoverageReport(params: {
     evaluated,
     totalTools: rows.length,
     requiredTools: rows.filter((row) => row.required).length,
-    reportOnlyTools: rows.filter((row) => !row.required || Boolean(row.tracking)).length,
+    reportOnlyTools: rows.filter((row) => !row.required).length,
     trackedTools: rows.filter((row) => Boolean(row.tracking)).length,
     nativeWorkspaceTools: rows.filter((row) => row.bucket === "codex-native-workspace").length,
     dynamicIntegrationTools: rows.filter((row) => row.bucket === "openclaw-dynamic-integration")
@@ -326,7 +326,6 @@ export function buildQaToolCoverageReport(params: {
       ? rows.filter(
           (row) =>
             row.required &&
-            !row.tracking &&
             row.openclaw === "pass" &&
             row.codex === "pass" &&
             (isPassingToolCoverageDrift(row.drift, true) || !coverageFailureForRow(row)),

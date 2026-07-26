@@ -5,7 +5,7 @@ scenario:
   surface: runtime-tools
   runtimePairLane: core
   coverage:
-    primary:
+    secondary:
       - agent-runtime.tool-edit
   objective: Verify targeted edit behavior is tracked across OpenClaw and Codex while Codex owns edit natively.
   successCriteria:

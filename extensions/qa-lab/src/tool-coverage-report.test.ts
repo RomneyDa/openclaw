@@ -161,7 +161,66 @@ describe("qa tool coverage report", () => {
     expect(markdown).toContain("#80236 tracked \\| runtime drift");
   });
 
-  it("uses runtime parity summary rows and allows tracked known-broken drift", () => {
+  it("keeps tracking metadata independent from required coverage metrics", () => {
+    const report = buildQaToolCoverageReport({
+      scenarios: [
+        makeScenario("tool-read", "read", {
+          toolCoverage: {
+            bucket: "openclaw-dynamic-integration",
+            expectedLayer: "openclaw-dynamic",
+            capabilityLayer: "openclaw-dynamic-direct",
+            required: true,
+            tracking: "#80236",
+          },
+        }),
+      ],
+      summary: {
+        scenarios: [
+          {
+            name: "tool read",
+            status: "pass",
+            runtimeParity: {
+              scenarioId: "tool-read",
+              drift: "none",
+              cells: {
+                openclaw: {
+                  runtime: "openclaw",
+                  status: "pass",
+                  transcriptBytes: "",
+                  toolCalls: [{ tool: "read", argsHash: "a", resultHash: "r" }],
+                  finalText: "",
+                  usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+                  wallClockMs: 1,
+                  bootStateLines: [],
+                },
+                codex: {
+                  runtime: "codex",
+                  status: "pass",
+                  transcriptBytes: "",
+                  toolCalls: [{ tool: "read", argsHash: "a", resultHash: "r" }],
+                  finalText: "",
+                  usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+                  wallClockMs: 1,
+                  bootStateLines: [],
+                },
+              },
+            },
+          },
+        ],
+      },
+      generatedAt: "2026-05-10T00:00:00.000Z",
+    });
+
+    expect(report).toMatchObject({
+      pass: true,
+      requiredTools: 1,
+      reportOnlyTools: 0,
+      trackedTools: 1,
+      passingTools: 1,
+    });
+  });
+
+  it("retains tracking metadata on accepted result-shape drift", () => {
     const report = buildQaToolCoverageReport({
       scenarios: [
         makeScenario("tool-read", "read"),
@@ -249,7 +308,7 @@ describe("qa tool coverage report", () => {
     });
 
     expect(report.pass).toBe(true);
-    expect(report.passingTools).toBe(1);
+    expect(report.passingTools).toBe(2);
     expect(report.trackedTools).toBe(1);
     expect(report.rows.find((row) => row.tool === "write")).toEqual(
       expect.objectContaining({
@@ -843,11 +902,11 @@ describe("qa tool coverage report", () => {
     );
     expect(report.rows.find((row) => row.tool === "sessions_spawn")).toEqual(
       expect.objectContaining({
-        required: false,
-        tracking: expect.stringContaining("#80319"),
-        action: expect.stringContaining("report-only"),
+        required: true,
+        action: expect.stringContaining("hard gate"),
       }),
     );
+    expect(report.rows.find((row) => row.tool === "sessions_spawn")?.tracking).toBeUndefined();
     expect(report.rows.find((row) => row.tool === "message-tool")).toEqual(
       expect.objectContaining({
         bucket: "optional-profile-or-plugin",

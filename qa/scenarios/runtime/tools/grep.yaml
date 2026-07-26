@@ -5,7 +5,7 @@ scenario:
   surface: runtime-tools
   runtimePairLane: core
   coverage:
-    primary:
+    secondary:
       - agent-runtime.tool-grep
   objective: Verify grep-style search behavior is tracked through command execution while Codex owns exec/process natively.
   successCriteria:

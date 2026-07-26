@@ -5,7 +5,7 @@ scenario:
   surface: runtime-tools
   runtimePairLane: core
   coverage:
-    primary:
+    secondary:
       - agent-runtime.tool-fs-write
   objective: Verify file write behavior is tracked across OpenClaw and Codex while Codex owns write natively.
   successCriteria:
