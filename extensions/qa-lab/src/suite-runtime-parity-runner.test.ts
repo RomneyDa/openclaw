@@ -1,6 +1,6 @@
 // QA Lab tests cover canonical runtime-pair result projection.
 import { describe, expect, it } from "vitest";
-import { qaSuiteRuntimeParityTesting } from "./suite-runtime-parity-runner.js";
+import { buildRuntimeParityScenarioResult } from "./suite-runtime-parity-result.js";
 
 function makeCell(
   runtime: "openclaw" | "codex",
@@ -20,56 +20,41 @@ function makeCell(
   };
 }
 
-describe("QA suite runtime parity runner", () => {
+describe("QA suite runtime parity result projection", () => {
   it("combines result-cell status with execution errors without losing skip details", () => {
-    expect(
-      qaSuiteRuntimeParityTesting.runtimeParityScenarioStepStatus({
-        status: "pass",
-        runtimeErrorClass: "scenario-failure",
-      }),
-    ).toBe("fail");
-    expect(
-      qaSuiteRuntimeParityTesting.runtimeParityScenarioStepStatus({
-        status: "skip",
-        runtimeErrorClass: "scenario-failure",
-      }),
-    ).toBe("fail");
-    expect(qaSuiteRuntimeParityTesting.runtimeParityScenarioStepStatus({ status: "skip" })).toBe(
-      "skip",
-    );
-    expect(
-      qaSuiteRuntimeParityTesting.runtimeParityScenarioStepStatus({
-        status: "skip",
-        transportErrorClass: "gateway-disconnected",
-      }),
-    ).toBe("fail");
-    expect(
-      qaSuiteRuntimeParityTesting.formatRuntimeParityScenarioCellDetails({
-        ...makeCell("codex", "skip"),
-        details:
-          "implementation unavailable\nRUNTIME_PARITY_SESSION_KEY=agent:qa:runtime-tool:read:happy",
-      }),
-    ).toContain("RUNTIME_PARITY_SESSION_KEY=agent:qa:runtime-tool:read:happy");
-
-    expect(
-      qaSuiteRuntimeParityTesting.runtimeParityScenarioResultStatus({
+    const failed = buildRuntimeParityScenarioResult({
+      scenarioName: "Runtime tool fixture — read",
+      result: {
         scenarioId: "runtime-tool-read",
         cells: {
-          openclaw: makeCell("openclaw", "skip"),
+          openclaw: {
+            ...makeCell("openclaw", "skip"),
+            details:
+              "implementation unavailable\nRUNTIME_PARITY_SESSION_KEY=agent:qa:runtime-tool:read:happy",
+          },
           codex: makeCell("codex", "pass", "scenario-failure"),
         },
         drift: "none",
-      }),
-    ).toBe("fail");
-    expect(
-      qaSuiteRuntimeParityTesting.runtimeParityScenarioResultStatus({
+      },
+    });
+    expect(failed.status).toBe("fail");
+    expect(failed.steps?.map((step) => step.status)).toEqual(["skip", "fail", "fail"]);
+    expect(failed.steps?.[0]?.details).toContain(
+      "RUNTIME_PARITY_SESSION_KEY=agent:qa:runtime-tool:read:happy",
+    );
+
+    const skipped = buildRuntimeParityScenarioResult({
+      scenarioName: "Runtime tool fixture — read",
+      result: {
         scenarioId: "runtime-tool-read",
         cells: {
           openclaw: makeCell("openclaw", "skip"),
           codex: makeCell("codex", "skip"),
         },
         drift: "failure-mode",
-      }),
-    ).toBe("skip");
+      },
+    });
+    expect(skipped.status).toBe("skip");
+    expect(skipped.steps?.map((step) => step.status)).toEqual(["skip", "skip", "skip"]);
   });
 });

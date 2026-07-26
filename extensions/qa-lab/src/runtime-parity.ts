@@ -63,7 +63,7 @@ export type RuntimeParityCell = {
   sentinelFindings?: GatewayLogSentinelFinding[];
 };
 
-export type RuntimeParityResultCell = RuntimeParityCell & {
+type RuntimeParityResultCell = RuntimeParityCell & {
   status: RuntimeParityStatus;
   details?: string;
 };
