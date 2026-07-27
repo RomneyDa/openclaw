@@ -194,7 +194,8 @@ export type PluginManifestContractListKey =
   | "workerProviders"
   | "usageProviders"
   | "migrationProviders"
-  | "gatewayMethodDispatch";
+  | "gatewayMethodDispatch"
+  | "talkActivityObservation";
 
 type SeenIdEntry = {
   candidate: PluginCandidate;
@@ -429,6 +430,7 @@ function mergeManifestContracts(
     "usageProviders",
     "migrationProviders",
     "gatewayMethodDispatch",
+    "talkActivityObservation",
     "tools",
   ] as const) {
     const merged = mergeContractLists(manifestContracts?.[key], catalogContracts[key]);
