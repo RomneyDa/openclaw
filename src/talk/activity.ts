@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import type { TalkEvent, TalkEventType } from "./talk-events.js";
 
@@ -156,7 +155,7 @@ function publish(event: TalkActivityEvent): void {
 
 function createActivity(): Activity {
   return {
-    id: randomUUID(),
+    id: globalThis.crypto.randomUUID(),
     ...RESET_STATUS,
   };
 }
