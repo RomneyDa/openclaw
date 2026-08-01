@@ -364,6 +364,7 @@ Docs: https://docs.openclaw.ai
 - **Media-store remote downloads:** bound response-header waits and stalled bodies, close abandoned redirect and error responses, and remove partial temp files so hung sources cannot pin callers. (#104624) Thanks @hugenshen.
 - **Cron llama.cpp tool schemas:** keep the model-facing cron declaration schema compatible with llama.cpp while retaining gateway and runtime nonblank validation. Fixes #107449. (#108360) Thanks @lee-xydt.
 - **System-agent recovery guidance:** direct browser and app users to Settings or the OpenClaw host instead of terminal-only exit guidance while preserving the required stop, onboard, and restart lifecycle. (#114633) Thanks @jesse-merhi.
+- **SQLite session turn reconciliation:** wait for pending user-turn persistence before orphan cleanup so restart and queued-turn timing cannot remove an already-durable current user message and fail the agent run. (#117384) Thanks @RomneyDa.
 
 ## 2026.7.1
 
