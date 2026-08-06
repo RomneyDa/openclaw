@@ -1,0 +1,254 @@
+name: "Proof: invalid session history cursor → 400"
+
+on:
+  push:
+    branches: [fix/gap-invalid-session-history-cursor-proof]
+
+permissions: {}
+
+jobs:
+  proof:
+    name: proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      BEFORE_SHA: 22de30f998216c0c480b8858f9185d9829d90bae
+      AFTER_SHA: a05cacaecce312c85ce1f541ef57d9de486efc5c
+      CI: true
+      OPENCLAW_SKIP_UPDATE_CHECK: 1
+
+    steps:
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 24.18.0
+
+      # ① Fetch immutable BEFORE / AFTER SHAs from upstream
+      - name: Fetch immutable source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_dir="$RUNNER_TEMP/proof-source"
+          mkdir -p "$source_dir"
+          cd "$source_dir"
+          git init
+          git remote add origin https://github.com/openclaw/openclaw.git
+          git fetch --depth=1 origin "$BEFORE_SHA"
+          git fetch --depth=1 origin "$AFTER_SHA"
+
+      # ② Install deps at BEFORE_SHA
+      - name: Install dependencies (before)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/proof-source"
+          git checkout --detach "$BEFORE_SHA"
+          corepack enable
+          corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
+          pnpm install --frozen-lockfile
+
+      # ③ BEFORE: run existing session-history tests + raw HTTP capture (bug behavior)
+      - name: Prove before fix — tests pass + invalid cursor returns 200
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/proof-source"
+          mkdir -p "$RUNNER_TEMP/proof"
+
+          echo "=== BEFORE: existing tests ==="
+          npx vitest run \
+            src/gateway/sessions-history-http.test.ts \
+            src/gateway/sessions-history-http.revocation.test.ts \
+            --reporter=verbose \
+            2>&1 | tee "$RUNNER_TEMP/proof/before-tests.log"
+          vitest_exit="${PIPESTATUS[0]}"
+          if [ "$vitest_exit" -ne 0 ]; then
+            echo "[proof] scene=before-existing-tests status=fail exit=$vitest_exit"
+            exit 1
+          fi
+          echo "[proof] scene=before-existing-tests status=pass"
+
+          echo "=== BEFORE: raw HTTP capture (invalid cursor → 200 bug) ==="
+          cat > "$RUNNER_TEMP/proof-source/src/gateway/proof-http-capture.test.ts" <<'PROOFEOF'
+          import fs from "node:fs/promises";
+          import os from "node:os";
+          import path from "node:path";
+          import { describe, test } from "vitest";
+          import { testState } from "./test-helpers.runtime-state.js";
+          import {
+            createGatewaySuiteHarness,
+            installGatewayTestHooks,
+            writeSessionStore,
+          } from "./test-helpers.server.js";
+
+          installGatewayTestHooks();
+
+          describe("proof http capture", () => {
+            test("raw HTTP requests", async () => {
+              // Create temp session store
+              const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-proof-"));
+              const storePath = path.join(dir, "sessions.json");
+              testState.sessionStorePath = storePath;
+              await writeSessionStore({
+                entries: {
+                  main: { sessionId: "sess-main", updatedAt: Date.now() },
+                },
+                storePath,
+              });
+
+              const harness = await createGatewaySuiteHarness({
+                serverOptions: { auth: { mode: "none" } },
+              });
+
+              const h = { "x-openclaw-scopes": "operator.read" };
+
+              const cursors = ["garbage", "seq:garbage", "seq:0", "-1", "1.5"];
+              for (const cursor of cursors) {
+                const url =
+                  `http://127.0.0.1:${harness.port}/sessions/` +
+                  `${encodeURIComponent("agent:main:main")}/history` +
+                  `?cursor=${encodeURIComponent(cursor)}`;
+                const res = await fetch(url, { headers: h });
+                const body = await res.text();
+                console.log(
+                  `[proof] cursor=${JSON.stringify(cursor)} status=${res.status} body_len=${body.length}`,
+                );
+                console.log(body.slice(0, 300));
+                console.log("---");
+              }
+
+              // Valid request (no cursor)
+              const url = `http://127.0.0.1:${harness.port}/sessions/${encodeURIComponent("agent:main:main")}/history`;
+              const res = await fetch(url, { headers: h });
+              console.log(`[proof] cursor=null status=${res.status}`);
+
+              await harness.close();
+              await fs.rm(dir, { recursive: true, force: true });
+            }, 30000);
+          });
+          PROOFEOF
+
+          npx vitest run src/gateway/proof-http-capture.test.ts --reporter=verbose 2>&1 | tee "$RUNNER_TEMP/proof/before-http-capture.log"
+          http_exit="${PIPESTATUS[0]}"
+          if [ "$http_exit" -ne 0 ]; then
+            echo "[proof] scene=before-http-capture status=fail exit=$http_exit"
+            exit 1
+          fi
+          echo "[proof] scene=before-http-capture status=pass"
+
+      # ④ Switch to AFTER_SHA and install
+      - name: Install dependencies (after)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/proof-source"
+          git checkout --detach "$AFTER_SHA"
+          pnpm install --frozen-lockfile
+
+      # ⑤ AFTER: run all tests + raw HTTP capture (fix behavior)
+      - name: Prove after fix — cursor validation returns 400 + no regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/proof-source"
+          mkdir -p "$RUNNER_TEMP/proof"
+
+          echo "=== AFTER: all tests ==="
+          npx vitest run \
+            src/gateway/sessions-history-http.test.ts \
+            src/gateway/sessions-history-http.revocation.test.ts \
+            --reporter=verbose \
+            2>&1 | tee "$RUNNER_TEMP/proof/after-tests.log"
+          vitest_exit="${PIPESTATUS[0]}"
+
+          if grep -q "rejects invalid cursor" "$RUNNER_TEMP/proof/after-tests.log"; then
+            echo "[proof] scene=after-cursor-validation-tests status=pass reason=found"
+          else
+            echo "[proof] scene=after-cursor-validation-tests status=fail reason=not_found"
+            exit 1
+          fi
+
+          if [ "$vitest_exit" -ne 0 ]; then
+            echo "[proof] scene=after-all-tests status=fail exit=$vitest_exit"
+            exit 1
+          fi
+          echo "[proof] scene=after-all-tests status=pass"
+
+          echo "=== AFTER: raw HTTP capture (invalid cursor → 400 fix) ==="
+          cat > "$RUNNER_TEMP/proof-source/src/gateway/proof-http-capture.test.ts" <<'PROOFEOF'
+          import fs from "node:fs/promises";
+          import os from "node:os";
+          import path from "node:path";
+          import { describe, test } from "vitest";
+          import { testState } from "./test-helpers.runtime-state.js";
+          import {
+            createGatewaySuiteHarness,
+            installGatewayTestHooks,
+            writeSessionStore,
+          } from "./test-helpers.server.js";
+
+          installGatewayTestHooks();
+
+          describe("proof http capture", () => {
+            test("raw HTTP requests", async () => {
+              // Create temp session store
+              const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-proof-"));
+              const storePath = path.join(dir, "sessions.json");
+              testState.sessionStorePath = storePath;
+              await writeSessionStore({
+                entries: {
+                  main: { sessionId: "sess-main", updatedAt: Date.now() },
+                },
+                storePath,
+              });
+
+              const harness = await createGatewaySuiteHarness({
+                serverOptions: { auth: { mode: "none" } },
+              });
+
+              const h = { "x-openclaw-scopes": "operator.read" };
+
+              const cursors = ["garbage", "seq:garbage", "seq:0", "-1", "1.5"];
+              for (const cursor of cursors) {
+                const url =
+                  `http://127.0.0.1:${harness.port}/sessions/` +
+                  `${encodeURIComponent("agent:main:main")}/history` +
+                  `?cursor=${encodeURIComponent(cursor)}`;
+                const res = await fetch(url, { headers: h });
+                const body = await res.text();
+                console.log(
+                  `[proof] cursor=${JSON.stringify(cursor)} status=${res.status} body_len=${body.length}`,
+                );
+                console.log(body.slice(0, 300));
+                console.log("---");
+              }
+
+              // Valid request (no cursor)
+              const url = `http://127.0.0.1:${harness.port}/sessions/${encodeURIComponent("agent:main:main")}/history`;
+              const res = await fetch(url, { headers: h });
+              console.log(`[proof] cursor=null status=${res.status}`);
+
+              await harness.close();
+              await fs.rm(dir, { recursive: true, force: true });
+            }, 30000);
+          });
+          PROOFEOF
+
+          npx vitest run src/gateway/proof-http-capture.test.ts --reporter=verbose 2>&1 | tee "$RUNNER_TEMP/proof/after-http-capture.log"
+          http_exit="${PIPESTATUS[0]}"
+          if [ "$http_exit" -ne 0 ]; then
+            echo "[proof] scene=after-http-capture status=fail exit=$http_exit"
+            exit 1
+          fi
+          echo "[proof] scene=after-http-capture status=pass"
+
+      # ⑥ Upload proof logs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: proof-fix-gap-invalid-session-history-cursor
+          path: |
+            ${{ runner.temp }}/proof/before-tests.log
+            ${{ runner.temp }}/proof/before-http-capture.log
+            ${{ runner.temp }}/proof/after-tests.log
+            ${{ runner.temp }}/proof/after-http-capture.log
+          retention-days: 30
