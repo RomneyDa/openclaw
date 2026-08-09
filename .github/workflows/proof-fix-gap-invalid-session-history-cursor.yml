@@ -13,7 +13,7 @@ jobs:
     timeout-minutes: 45
     env:
       BEFORE_SHA: 22de30f998216c0c480b8858f9185d9829d90bae
-      AFTER_SHA: a05cacaecce312c85ce1f541ef57d9de486efc5c
+      AFTER_SHA: 42b3ddc670c1073b425e874c72903ecc0db32397
       CI: true
       OPENCLAW_SKIP_UPDATE_CHECK: 1
 
@@ -32,8 +32,9 @@ jobs:
           cd "$source_dir"
           git init
           git remote add origin https://github.com/openclaw/openclaw.git
+          git remote add contributor https://github.com/xialonglee/openclaw.git
           git fetch --depth=1 origin "$BEFORE_SHA"
-          git fetch --depth=1 origin "$AFTER_SHA"
+          git fetch --depth=1 contributor "$AFTER_SHA"
 
       # ② Install deps at BEFORE_SHA
       - name: Install dependencies (before)
@@ -178,7 +179,7 @@ jobs:
           import fs from "node:fs/promises";
           import os from "node:os";
           import path from "node:path";
-          import { describe, test } from "vitest";
+          import { describe, expect, test } from "vitest";
           import { testState } from "./test-helpers.runtime-state.js";
           import {
             createGatewaySuiteHarness,
@@ -207,25 +208,30 @@ jobs:
 
               const h = { "x-openclaw-scopes": "operator.read" };
 
-              const cursors = ["garbage", "seq:garbage", "seq:0", "-1", "1.5"];
-              for (const cursor of cursors) {
-                const url =
-                  `http://127.0.0.1:${harness.port}/sessions/` +
-                  `${encodeURIComponent("agent:main:main")}/history` +
-                  `?cursor=${encodeURIComponent(cursor)}`;
+              const baseUrl =
+                `http://127.0.0.1:${harness.port}/sessions/` +
+                `${encodeURIComponent("agent:main:main")}/history`;
+              const cases = [
+                { label: "absent", query: "", expected: 200 },
+                { label: "empty", query: "?cursor=", expected: 200 },
+                { label: "whitespace", query: "?cursor=%20", expected: 200 },
+                { label: "garbage", query: "?cursor=garbage", expected: 400 },
+                { label: "seq:garbage", query: "?cursor=seq%3Agarbage", expected: 400 },
+                { label: "seq:0", query: "?cursor=seq%3A0", expected: 400 },
+                { label: "-1", query: "?cursor=-1", expected: 400 },
+                { label: "1.5", query: "?cursor=1.5", expected: 400 },
+              ];
+              for (const proofCase of cases) {
+                const url = `${baseUrl}${proofCase.query}`;
                 const res = await fetch(url, { headers: h });
                 const body = await res.text();
                 console.log(
-                  `[proof] cursor=${JSON.stringify(cursor)} status=${res.status} body_len=${body.length}`,
+                  `[proof] case=${JSON.stringify(proofCase.label)} status=${res.status} expected=${proofCase.expected} body_len=${body.length}`,
                 );
                 console.log(body.slice(0, 300));
                 console.log("---");
+                expect(res.status).toBe(proofCase.expected);
               }
-
-              // Valid request (no cursor)
-              const url = `http://127.0.0.1:${harness.port}/sessions/${encodeURIComponent("agent:main:main")}/history`;
-              const res = await fetch(url, { headers: h });
-              console.log(`[proof] cursor=null status=${res.status}`);
 
               await harness.close();
               await fs.rm(dir, { recursive: true, force: true });
