@@ -447,6 +447,8 @@ jobs:
     name: Generate QA profile evidence (${{ matrix.id }})
     needs: [validate_selected_ref, plan_qa_profile]
     runs-on: blacksmith-8vcpu-ubuntu-2404
+    # Full live-profile shards can have a long serial producer tail after flow/native work.
+    # Keep ten minutes after the child deadline for validation and artifact upload.
     timeout-minutes: 150
     permissions:
       contents: read
@@ -658,7 +660,7 @@ jobs:
           fi
 
           qa_exit_code=0
-          LC_ALL=C timeout --verbose --signal=TERM --kill-after=30s 110m \
+          LC_ALL=C timeout --verbose --signal=TERM --kill-after=30s 140m \
             "${timeout_child_env[@]}" bash -c 'exec "$@" 2>&3' bash \
             pnpm openclaw qa run \
               --repo-root . \
@@ -675,10 +677,10 @@ jobs:
           timeout_outcome="none"
           if [[ "$qa_exit_code" -eq 137 ]] && grep -Eq "^timeout: sending signal KILL to command '[A-Za-z0-9_./+-]+'$" "$timeout_supervisor_log"; then
             timeout_outcome="kill"
-            echo "::warning::QA profile '${QA_PROFILE}' timed out after 110 minutes and required SIGKILL after the 30-second grace period; partial evidence will still be uploaded."
+            echo "::warning::QA profile '${QA_PROFILE}' timed out after 140 minutes and required SIGKILL after the 30-second grace period; partial evidence will still be uploaded."
           elif [[ "$qa_exit_code" -eq 124 ]] && grep -Eq "^timeout: sending signal TERM to command '[A-Za-z0-9_./+-]+'$" "$timeout_supervisor_log"; then
             timeout_outcome="term"
-            echo "::warning::QA profile '${QA_PROFILE}' timed out after 110 minutes and was terminated; partial evidence will still be uploaded."
+            echo "::warning::QA profile '${QA_PROFILE}' timed out after 140 minutes and was terminated; partial evidence will still be uploaded."
           fi
 
           QA_EXIT_CODE="$qa_exit_code" TIMEOUT_OUTCOME="$timeout_outcome" OUTPUT_DIR="$published_output_dir" \

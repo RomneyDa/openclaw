@@ -738,8 +738,8 @@ esac
       "Run QA profile shard step",
     );
     let script = runProfileStep.run
-      .replace("--kill-after=30s 110m", "--kill-after=0.05s 0.4s")
-      .replaceAll("110 minutes", "0.4 seconds")
+      .replace("--kill-after=30s 140m", "--kill-after=0.05s 0.4s")
+      .replaceAll("140 minutes", "0.4 seconds")
       .replaceAll("30-second", "0.05-second");
     const timeoutSupervisorCapture = path.join(root, "timeout-supervisor.log");
     const timeoutClassificationStart = `supervisor_tee_pid=""
@@ -8609,7 +8609,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       runProfileStep.run.indexOf('echo "output_dir=${published_output_dir}"'),
     );
     expect(runProfileStep.run).toContain(
-      "LC_ALL=C timeout --verbose --signal=TERM --kill-after=30s 110m",
+      "LC_ALL=C timeout --verbose --signal=TERM --kill-after=30s 140m",
     );
     expect(runProfileStep.run).toContain("qa_exit_code=$?");
     expect(runProfileStep.run).toContain('timeout_child_env+=("LC_ALL=$LC_ALL")');
