@@ -5,6 +5,7 @@ import { resolveUserPath } from "../../../utils.js";
 import { resolveAgentDir } from "../../agent-scope-config.js";
 import { findModelCatalogEntry } from "../../model-catalog-lookup.js";
 import type { ModelCatalogEntry } from "../../model-catalog.types.js";
+import { splitTrailingAuthProfile } from "../../model-ref-profile.js";
 import {
   findNormalizedProviderValue,
   resolveAllowedModelRef,
@@ -58,11 +59,11 @@ async function resolveSpawnModelError(params: {
   workspaceDir?: string;
   request: SpawnSubagentParams;
   resolvedModel?: string;
-}): Promise<string | undefined> {
+}): Promise<{ error?: string; requestedProvider?: string }> {
   const { cfg, targetAgentId } = params;
   const requestedModel = normalizeOptionalString(params.request.model);
   if (!requestedModel && !params.request.outputSchema) {
-    return undefined;
+    return {};
   }
   const defaults = resolveDefaultModelForAgent({ cfg, agentId: targetAgentId });
   const selected = splitModelRef(params.resolvedModel);
@@ -78,15 +79,20 @@ async function resolveSpawnModelError(params: {
       scopedLiveProviderDiscovery: true,
     });
   } catch (error) {
-    return `sessions_spawn could not verify ${requestedModel ? "the requested model" : "outputSchema model capabilities"}: ${summarizeSpawnError(error)}`;
+    return {
+      error: `sessions_spawn could not verify ${requestedModel ? "the requested model" : "outputSchema model capabilities"}: ${summarizeSpawnError(error)}`,
+    };
   }
 
   if (!requestedModel) {
     const model = selected.model ?? defaults.model;
     const entry = model && findModelCatalogEntry(catalog, { provider, modelId: model });
-    return entry && !supportsModelTools(entry)
-      ? `sessions_spawn outputSchema requires a tool-capable target model; "${provider}/${model}" declares compat.supportsTools=false.`
-      : undefined;
+    return {
+      error:
+        entry && !supportsModelTools(entry)
+          ? `sessions_spawn outputSchema requires a tool-capable target model; "${provider}/${model}" declares compat.supportsTools=false.`
+          : undefined,
+    };
   }
   const selection = {
     cfg,
@@ -100,7 +106,7 @@ async function resolveSpawnModelError(params: {
     raw: requestedModel,
   });
   if ("error" in resolved) {
-    return `sessions_spawn model "${requestedModel}" is not usable: ${resolved.error}`;
+    return { error: `sessions_spawn model "${requestedModel}" is not usable: ${resolved.error}` };
   }
 
   const entry = findModelCatalogEntry(catalog, {
@@ -118,13 +124,17 @@ async function resolveSpawnModelError(params: {
         workspaceDir: params.workspaceDir,
       }).status === "owned";
     if (!knownProvider) {
-      return `sessions_spawn model "${requestedModel}" is not usable: unknown model provider "${resolvedProvider}"`;
+      return {
+        error: `sessions_spawn model "${requestedModel}" is not usable: unknown model provider "${resolvedProvider}"`,
+      };
     }
   }
   if (params.request.outputSchema && entry && !supportsModelTools(entry)) {
-    return `sessions_spawn outputSchema requires a tool-capable target model; "${resolved.ref.provider}/${resolved.ref.model}" declares compat.supportsTools=false.`;
+    return {
+      error: `sessions_spawn outputSchema requires a tool-capable target model; "${resolved.ref.provider}/${resolved.ref.model}" declares compat.supportsTools=false.`,
+    };
   }
-  return undefined;
+  return { requestedProvider: resolved.ref.provider };
 }
 
 type ResolvedSubagentChildPlan = {
@@ -231,6 +241,12 @@ export async function resolveSubagentChildPlan(params: {
   const targetAgentDir = resolveAgentDir(params.cfg, params.targetAgentId);
   const requesterAgentConfig = resolveAgentConfig(params.cfg, params.requesterAgentId);
   const targetAgentConfig = resolveAgentConfig(params.cfg, params.targetAgentId);
+  const requestedModel = normalizeOptionalString(params.request.model);
+  // Policy authorizes model identity; credentials remain session-owned state.
+  // Keep the profile separate so launch auth stays model-scoped without losing selection.
+  const explicitModelSelection = requestedModel
+    ? splitTrailingAuthProfile(requestedModel)
+    : undefined;
   const callerThinkingRaw = readRequesterThinkingLevel({
     cfg: params.cfg,
     requesterInternalKey: params.requesterInternalKey,
@@ -249,7 +265,7 @@ export async function resolveSubagentChildPlan(params: {
     targetAgentId: params.targetAgentId,
     requesterAgentConfig,
     targetAgentConfig,
-    modelOverride: params.request.model,
+    modelOverride: explicitModelSelection?.model,
     thinkingOverrideRaw: params.request.thinking,
     callerThinkingRaw,
     fastMode: inheritedFastMode,
@@ -264,7 +280,7 @@ export async function resolveSubagentChildPlan(params: {
     };
   }
   const { resolvedModel } = modelPlan;
-  const modelError = await resolveSpawnModelError({
+  const modelValidation = await resolveSpawnModelError({
     cfg: params.cfg,
     targetAgentId: params.targetAgentId,
     targetAgentDir,
@@ -272,19 +288,42 @@ export async function resolveSubagentChildPlan(params: {
     request: params.request,
     resolvedModel,
   });
-  if (modelError) {
+  if (modelValidation.error) {
     return {
       ok: false,
       result: {
         status: "error",
-        error: modelError,
+        error: modelValidation.error,
         ...(params.request.outputSchema ? { childSessionKey } : {}),
       },
     };
   }
   const resolvedLaunchModel = splitModelRef(resolvedModel);
+  if (
+    explicitModelSelection?.profile &&
+    modelValidation.requestedProvider &&
+    resolvedLaunchModel.provider !== modelValidation.requestedProvider
+  ) {
+    return {
+      ok: false,
+      result: {
+        status: "error",
+        error: `sessions_spawn auth profile "${explicitModelSelection.profile}" cannot follow model fallback from "${modelValidation.requestedProvider}" to "${resolvedLaunchModel.provider}".`,
+      },
+    };
+  }
+  const resolvedModelPlan = explicitModelSelection?.profile
+    ? {
+        ...modelPlan,
+        initialSessionPatch: {
+          ...modelPlan.initialSessionPatch,
+          authProfileOverride: explicitModelSelection.profile,
+          authProfileOverrideSource: "user" as const,
+        },
+      }
+    : modelPlan;
   const launchAuthorization: SubagentLaunchAuthorization | undefined =
-    params.request.model?.trim() && resolvedLaunchModel.model
+    explicitModelSelection?.model && resolvedLaunchModel.model
       ? {
           modelOverride: {
             ...(resolvedLaunchModel.provider ? { provider: resolvedLaunchModel.provider } : {}),
@@ -304,7 +343,7 @@ export async function resolveSubagentChildPlan(params: {
       childSessionKey,
       childRuntimeSandboxed: childRuntime.sandboxed,
       targetAgentDir,
-      modelPlan,
+      modelPlan: resolvedModelPlan,
       launchAuthorization,
       resolvedModelMetadata: buildResolvedSubagentModelMetadata(resolvedModel),
     },
