@@ -3,6 +3,7 @@
 import os from "node:os";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../../test/helpers/temp-dir.js";
+import type { OpenClawConfig } from "../../../config/config.js";
 import { resolveSessionAuthProfileOverrideSource } from "../../../config/sessions/auth-profile-override-provenance.js";
 import type { SessionEntry } from "../../../config/sessions/types.js";
 import { resolveSessionAuthSelection } from "../../auth-profiles/session-override.js";
@@ -195,7 +196,7 @@ describe("spawnSubagentDirect runtime model persistence", () => {
           },
         ],
       },
-    });
+    }) as OpenClawConfig;
     const dedicatedCallGatewayMock = vi.fn();
     const dedicatedUpdateSessionStoreMock = vi.fn();
     const {
