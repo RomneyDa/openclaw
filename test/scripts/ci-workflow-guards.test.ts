@@ -8571,7 +8571,8 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(validateProfileStep.run).toContain("matrix=${JSON.stringify({ include: plan.shards })}");
     expect(validateProfileStep.run).toContain("shard_count=${plan.shards.length}");
 
-    expect(qaShardJob["timeout-minutes"]).toBe(150);
+    const qaShardJobTimeoutMinutes = qaShardJob["timeout-minutes"];
+    expect(qaShardJobTimeoutMinutes).toBe(180);
     expect(qaShardJob.needs).toEqual(["validate_selected_ref", "plan_qa_profile"]);
     expect(qaShardJob.strategy).toMatchObject({
       "fail-fast": false,
@@ -8611,6 +8612,8 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(runProfileStep.run).toContain(
       "LC_ALL=C timeout --verbose --signal=TERM --kill-after=30s 140m",
     );
+    const profileTimeoutMinutes = Number(/--kill-after=30s (\d+)m/.exec(runProfileStep.run)?.[1]);
+    expect(qaShardJobTimeoutMinutes - profileTimeoutMinutes).toBeGreaterThanOrEqual(30);
     expect(runProfileStep.run).toContain("qa_exit_code=$?");
     expect(runProfileStep.run).toContain('timeout_child_env+=("LC_ALL=$LC_ALL")');
     expect(runProfileStep.run).toContain('timeout_child_env+=("-u" "LC_ALL")');

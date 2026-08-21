@@ -447,9 +447,9 @@ jobs:
     name: Generate QA profile evidence (${{ matrix.id }})
     needs: [validate_selected_ref, plan_qa_profile]
     runs-on: blacksmith-8vcpu-ubuntu-2404
-    # Full live-profile shards can have a long serial producer tail after flow/native work.
-    # Keep ten minutes after the child deadline for validation and artifact upload.
-    timeout-minutes: 150
+    # Reserve time around the supervised profile run for checkout/install/build setup and for
+    # always-run evidence validation/upload. The child deadline must not consume the job budget.
+    timeout-minutes: 180
     permissions:
       contents: read
     environment: qa-live-shared
