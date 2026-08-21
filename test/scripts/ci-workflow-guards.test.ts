@@ -684,7 +684,7 @@ function readQaProfileEvidenceWorkflow() {
 
 type QaProfileTimeoutFixtureMode = "natural-124" | "self-kill" | "term" | "kill";
 
-function runQaProfileTimeoutFixture(mode: QaProfileTimeoutFixtureMode) {
+function runQaProfileTimeoutFixture(mode: QaProfileTimeoutFixtureMode, setupElapsedSeconds = 0) {
   const root = mkdtempSync(path.join(tmpdir(), "openclaw-qa-profile-timeout-"));
   try {
     const selectedRoot = path.join(root, "selected");
@@ -738,25 +738,24 @@ esac
       "Run QA profile shard step",
     );
     let script = runProfileStep.run
-      .replace("--kill-after=30s 140m", "--kill-after=0.05s 0.4s")
-      .replaceAll("140 minutes", "0.4 seconds")
+      .replace('--kill-after=30s "${profile_timeout_seconds}s"', "--kill-after=0.05s 0.4s")
+      .replaceAll("${profile_timeout_seconds} seconds", "0.4 seconds")
       .replaceAll("30-second", "0.05-second");
     const timeoutSupervisorCapture = path.join(root, "timeout-supervisor.log");
-    const timeoutClassificationStart = `supervisor_tee_pid=""
-
-timeout_outcome="none"`;
+    const profileTimeoutCapture = path.join(root, "profile-timeout-seconds");
     // Bash writes killed-job diagnostics outside timeout's redirected stream. Capture the
     // authoritative supervisor log before the workflow's EXIT trap removes it.
-    const capturedScript = script.replace(
-      timeoutClassificationStart,
-      `supervisor_tee_pid=""
-cp "$timeout_supervisor_log" "$TIMEOUT_SUPERVISOR_CAPTURE"
-
-timeout_outcome="none"`,
+    let capturedScript = script.replace(
+      'timeout_outcome="none"',
+      'if [[ -f "$timeout_supervisor_log" ]]; then cp "$timeout_supervisor_log" "$TIMEOUT_SUPERVISOR_CAPTURE"; else : > "$TIMEOUT_SUPERVISOR_CAPTURE"; fi\n\ntimeout_outcome="none"',
     );
     if (capturedScript === script) {
       throw new Error("QA timeout fixture could not capture the timeout supervisor log");
     }
+    capturedScript = capturedScript.replace(
+      "qa_exit_code=0",
+      'printf \'%s\\n\' "$profile_timeout_seconds" > "$PROFILE_TIMEOUT_CAPTURE"\n\nqa_exit_code=0',
+    );
     script = capturedScript;
     const githubOutput = path.join(root, "github-output");
     const run = runWorkflowShellScript(script, {
@@ -768,6 +767,8 @@ timeout_outcome="none"`,
         GITHUB_RUN_ATTEMPT: "1",
         GITHUB_RUN_ID: "42",
         GITHUB_WORKSPACE: root,
+        QA_JOB_STARTED_AT_SECONDS: String(Math.floor(Date.now() / 1000) - setupElapsedSeconds),
+        PROFILE_TIMEOUT_CAPTURE: profileTimeoutCapture,
         LC_ALL: "POSIX",
         PATH: fixturePath,
         CATEGORY_IDS_JSON: '["fixture.category"]',
@@ -799,6 +800,7 @@ timeout_outcome="none"`,
       commandStatus: run.status,
       githubOutput: readFileSync(githubOutput, "utf8"),
       status,
+      profileTimeoutSeconds: Number(readFileSync(profileTimeoutCapture, "utf8").trim()),
       stderr: run.stderr,
       stdout: run.stdout,
       timeoutSupervisorLog: readFileSync(timeoutSupervisorCapture, "utf8"),
@@ -8269,6 +8271,36 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     },
   );
 
+  it.skipIf(process.platform !== "linux")(
+    "subtracts elapsed setup while preserving the QA evidence finalization reserve",
+    () => {
+      const result = runQaProfileTimeoutFixture("kill", 75 * 60);
+      expect(result.commandStatus, `${result.stdout}\n${result.stderr}`).toBe(0);
+      expect(result.profileTimeoutSeconds).toBeGreaterThanOrEqual(75 * 60 - 32);
+      expect(result.profileTimeoutSeconds).toBeLessThanOrEqual(75 * 60 - 30);
+      expect(result.status).toMatchObject({
+        exitCode: 137,
+        timedOut: true,
+        timeoutOutcome: "kill",
+      });
+    },
+  );
+
+  it.skipIf(process.platform !== "linux")(
+    "skips the child without blocking evidence finalization after setup exhausts its budget",
+    () => {
+      const result = runQaProfileTimeoutFixture("natural-124", 151 * 60);
+      expect(result.commandStatus, `${result.stdout}\n${result.stderr}`).toBe(0);
+      expect(result.profileTimeoutSeconds).toBeLessThanOrEqual(0);
+      expect(result.status).toMatchObject({
+        exitCode: 124,
+        timedOut: true,
+        timeoutOutcome: "term",
+      });
+      expect(result.stdout).toContain("setup consumed its run budget");
+    },
+  );
+
   it("keeps maturity scorecard generated QA evidence handoff strict", () => {
     const maturityWorkflow = readMaturityScorecardWorkflow();
     const qaEvidenceWorkflow = readQaProfileEvidenceWorkflow();
@@ -8609,11 +8641,24 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(runProfileStep.run.indexOf('mkdir -p "$qa_output_dir"')).toBeLessThan(
       runProfileStep.run.indexOf('echo "output_dir=${published_output_dir}"'),
     );
-    expect(runProfileStep.run).toContain(
-      "LC_ALL=C timeout --verbose --signal=TERM --kill-after=30s 140m",
+    const authorizationStep = expectDefined(
+      qaShardJob.steps.find(
+        (step: WorkflowStep) => step.name === "Require authorized workflow actor",
+      ),
+      "Require authorized workflow actor step",
     );
-    const profileTimeoutMinutes = Number(/--kill-after=30s (\d+)m/.exec(runProfileStep.run)?.[1]);
-    expect(qaShardJobTimeoutMinutes - profileTimeoutMinutes).toBeGreaterThanOrEqual(30);
+    expect(authorizationStep.with.script).toContain(
+      'core.exportVariable("QA_JOB_STARTED_AT_SECONDS"',
+    );
+    expect(runProfileStep.run).toContain(
+      "remaining_child_seconds=$((job_timeout_seconds - elapsed_setup_seconds - finalization_reserve_seconds - timeout_kill_grace_seconds))",
+    );
+    expect(runProfileStep.run).toContain(
+      "profile_timeout_seconds=$((remaining_child_seconds < 140 * 60 ? remaining_child_seconds : 140 * 60))",
+    );
+    expect(runProfileStep.run).toContain(
+      'timeout --verbose --signal=TERM --kill-after=30s "${profile_timeout_seconds}s"',
+    );
     expect(runProfileStep.run).toContain("qa_exit_code=$?");
     expect(runProfileStep.run).toContain('timeout_child_env+=("LC_ALL=$LC_ALL")');
     expect(runProfileStep.run).toContain('timeout_child_env+=("-u" "LC_ALL")');
