@@ -451,7 +451,7 @@ jobs:
     # always-run evidence validation/upload. The child deadline must not consume the job budget.
     timeout-minutes: 180
     permissions:
-      actions: read
+      checks: read
       contents: read
     environment: qa-live-shared
     strategy:
@@ -468,19 +468,23 @@ jobs:
           JOB_CONTEXT: ${{ toJSON(job) }}
         with:
           script: |
-            const { data: workflowRun } = await github.rest.actions.getWorkflowRun({
+            const job = JSON.parse(process.env.JOB_CONTEXT ?? "{}");
+            const checkRunId = Number(job.check_run_id);
+            if (!Number.isSafeInteger(checkRunId)) {
+              throw new Error("GitHub did not return a valid job check run ID.");
+            }
+            const { data: checkRun } = await github.rest.checks.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              run_id: context.runId,
+              check_run_id: checkRunId,
             });
-            const workflowStartedAtSeconds = Math.floor(
-              Date.parse(workflowRun.run_started_at) / 1000,
+            const jobStartedAtSeconds = Math.floor(
+              Date.parse(checkRun.started_at) / 1000,
             );
-            if (!Number.isFinite(workflowStartedAtSeconds)) {
-              throw new Error("GitHub did not return a valid workflow run start timestamp.");
+            if (!Number.isFinite(jobStartedAtSeconds)) {
+              throw new Error("GitHub did not return a valid job check run start timestamp.");
             }
-            core.exportVariable("QA_WORKFLOW_STARTED_AT_SECONDS", String(workflowStartedAtSeconds));
-            const job = JSON.parse(process.env.JOB_CONTEXT ?? "{}");
+            core.exportVariable("QA_JOB_STARTED_AT_SECONDS", String(jobStartedAtSeconds));
             const callerWorkflowRef = process.env.CALLER_WORKFLOW_REF ?? "";
             const calledWorkflowRef =
               "openclaw/openclaw/.github/workflows/qa-profile-evidence.yml@refs/heads/main";
@@ -671,9 +675,9 @@ jobs:
           job_timeout_seconds=$((180 * 60))
           finalization_reserve_seconds=$((30 * 60))
           timeout_kill_grace_seconds=30
-          # The workflow-run clock predates every job step, so delayed runner/action startup is
-          # conservatively charged against the child instead of consuming the finalization tail.
-          elapsed_setup_seconds=$(($(date +%s) - QA_WORKFLOW_STARTED_AT_SECONDS))
+          # The job check run starts before the first action, charging runner/action startup while
+          # excluding prerequisite jobs and queue time from this job's child budget.
+          elapsed_setup_seconds=$(($(date +%s) - QA_JOB_STARTED_AT_SECONDS))
           remaining_child_seconds=$((job_timeout_seconds - elapsed_setup_seconds - finalization_reserve_seconds - timeout_kill_grace_seconds))
           profile_timeout_seconds=$((remaining_child_seconds < 140 * 60 ? remaining_child_seconds : 140 * 60))
 

@@ -684,7 +684,7 @@ function readQaProfileEvidenceWorkflow() {
 
 type QaProfileTimeoutFixtureMode = "natural-124" | "self-kill" | "term" | "kill";
 
-function runQaProfileTimeoutFixture(mode: QaProfileTimeoutFixtureMode, workflowElapsedSeconds = 0) {
+function runQaProfileTimeoutFixture(mode: QaProfileTimeoutFixtureMode, jobElapsedSeconds = 0) {
   const root = mkdtempSync(path.join(tmpdir(), "openclaw-qa-profile-timeout-"));
   try {
     const selectedRoot = path.join(root, "selected");
@@ -767,9 +767,7 @@ esac
         GITHUB_RUN_ATTEMPT: "1",
         GITHUB_RUN_ID: "42",
         GITHUB_WORKSPACE: root,
-        QA_WORKFLOW_STARTED_AT_SECONDS: String(
-          Math.floor(Date.now() / 1000) - workflowElapsedSeconds,
-        ),
+        QA_JOB_STARTED_AT_SECONDS: String(Math.floor(Date.now() / 1000) - jobElapsedSeconds),
         PROFILE_TIMEOUT_CAPTURE: profileTimeoutCapture,
         LC_ALL: "POSIX",
         PATH: fixturePath,
@@ -8649,11 +8647,13 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       ),
       "Require authorized workflow actor step",
     );
-    expect(authorizationStep.with.script).toContain("github.rest.actions.getWorkflowRun");
-    expect(authorizationStep.with.script).toContain("Date.parse(workflowRun.run_started_at)");
+    expect(authorizationStep.with.script).toContain("job.check_run_id");
+    expect(authorizationStep.with.script).toContain("github.rest.checks.get");
+    expect(authorizationStep.with.script).toContain("Date.parse(checkRun.started_at)");
     expect(authorizationStep.with.script).toContain(
-      'core.exportVariable("QA_WORKFLOW_STARTED_AT_SECONDS"',
+      'core.exportVariable("QA_JOB_STARTED_AT_SECONDS"',
     );
+    expect(authorizationStep.with.script).not.toContain("getWorkflowRun");
     expect(runProfileStep.run).toContain(
       "remaining_child_seconds=$((job_timeout_seconds - elapsed_setup_seconds - finalization_reserve_seconds - timeout_kill_grace_seconds))",
     );
