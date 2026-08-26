@@ -451,6 +451,7 @@ jobs:
     # always-run evidence validation/upload. The child deadline must not consume the job budget.
     timeout-minutes: 180
     permissions:
+      actions: read
       contents: read
     environment: qa-live-shared
     strategy:
@@ -467,7 +468,18 @@ jobs:
           JOB_CONTEXT: ${{ toJSON(job) }}
         with:
           script: |
-            core.exportVariable("QA_JOB_STARTED_AT_SECONDS", String(Math.floor(Date.now() / 1000)));
+            const { data: workflowRun } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });
+            const workflowStartedAtSeconds = Math.floor(
+              Date.parse(workflowRun.run_started_at) / 1000,
+            );
+            if (!Number.isFinite(workflowStartedAtSeconds)) {
+              throw new Error("GitHub did not return a valid workflow run start timestamp.");
+            }
+            core.exportVariable("QA_WORKFLOW_STARTED_AT_SECONDS", String(workflowStartedAtSeconds));
             const job = JSON.parse(process.env.JOB_CONTEXT ?? "{}");
             const callerWorkflowRef = process.env.CALLER_WORKFLOW_REF ?? "";
             const calledWorkflowRef =
@@ -657,12 +669,12 @@ jobs:
           fi
 
           job_timeout_seconds=$((180 * 60))
-          # GitHub's job timeout starts before the first step; reserve runner/action startup too.
-          pre_step_reserve_seconds=$((5 * 60))
           finalization_reserve_seconds=$((30 * 60))
           timeout_kill_grace_seconds=30
-          elapsed_setup_seconds=$(($(date +%s) - QA_JOB_STARTED_AT_SECONDS))
-          remaining_child_seconds=$((job_timeout_seconds - pre_step_reserve_seconds - elapsed_setup_seconds - finalization_reserve_seconds - timeout_kill_grace_seconds))
+          # The workflow-run clock predates every job step, so delayed runner/action startup is
+          # conservatively charged against the child instead of consuming the finalization tail.
+          elapsed_setup_seconds=$(($(date +%s) - QA_WORKFLOW_STARTED_AT_SECONDS))
+          remaining_child_seconds=$((job_timeout_seconds - elapsed_setup_seconds - finalization_reserve_seconds - timeout_kill_grace_seconds))
           profile_timeout_seconds=$((remaining_child_seconds < 140 * 60 ? remaining_child_seconds : 140 * 60))
 
           qa_exit_code=0

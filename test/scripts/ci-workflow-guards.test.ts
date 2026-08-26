@@ -684,7 +684,7 @@ function readQaProfileEvidenceWorkflow() {
 
 type QaProfileTimeoutFixtureMode = "natural-124" | "self-kill" | "term" | "kill";
 
-function runQaProfileTimeoutFixture(mode: QaProfileTimeoutFixtureMode, setupElapsedSeconds = 0) {
+function runQaProfileTimeoutFixture(mode: QaProfileTimeoutFixtureMode, workflowElapsedSeconds = 0) {
   const root = mkdtempSync(path.join(tmpdir(), "openclaw-qa-profile-timeout-"));
   try {
     const selectedRoot = path.join(root, "selected");
@@ -767,7 +767,9 @@ esac
         GITHUB_RUN_ATTEMPT: "1",
         GITHUB_RUN_ID: "42",
         GITHUB_WORKSPACE: root,
-        QA_JOB_STARTED_AT_SECONDS: String(Math.floor(Date.now() / 1000) - setupElapsedSeconds),
+        QA_WORKFLOW_STARTED_AT_SECONDS: String(
+          Math.floor(Date.now() / 1000) - workflowElapsedSeconds,
+        ),
         PROFILE_TIMEOUT_CAPTURE: profileTimeoutCapture,
         LC_ALL: "POSIX",
         PATH: fixturePath,
@@ -8272,12 +8274,12 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
   );
 
   it.skipIf(process.platform !== "linux")(
-    "subtracts elapsed setup and pre-step time while preserving the QA evidence finalization reserve",
+    "charges delayed first-action time against the child while preserving finalization",
     () => {
       const result = runQaProfileTimeoutFixture("kill", 75 * 60);
       expect(result.commandStatus, `${result.stdout}\n${result.stderr}`).toBe(0);
-      expect(result.profileTimeoutSeconds).toBeGreaterThanOrEqual(70 * 60 - 32);
-      expect(result.profileTimeoutSeconds).toBeLessThanOrEqual(70 * 60 - 30);
+      expect(result.profileTimeoutSeconds).toBeGreaterThanOrEqual(75 * 60 - 32);
+      expect(result.profileTimeoutSeconds).toBeLessThanOrEqual(75 * 60 - 30);
       expect(result.status).toMatchObject({
         exitCode: 137,
         timedOut: true,
@@ -8647,11 +8649,13 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       ),
       "Require authorized workflow actor step",
     );
+    expect(authorizationStep.with.script).toContain("github.rest.actions.getWorkflowRun");
+    expect(authorizationStep.with.script).toContain("Date.parse(workflowRun.run_started_at)");
     expect(authorizationStep.with.script).toContain(
-      'core.exportVariable("QA_JOB_STARTED_AT_SECONDS"',
+      'core.exportVariable("QA_WORKFLOW_STARTED_AT_SECONDS"',
     );
     expect(runProfileStep.run).toContain(
-      "remaining_child_seconds=$((job_timeout_seconds - pre_step_reserve_seconds - elapsed_setup_seconds - finalization_reserve_seconds - timeout_kill_grace_seconds))",
+      "remaining_child_seconds=$((job_timeout_seconds - elapsed_setup_seconds - finalization_reserve_seconds - timeout_kill_grace_seconds))",
     );
     expect(runProfileStep.run).toContain(
       "profile_timeout_seconds=$((remaining_child_seconds < 140 * 60 ? remaining_child_seconds : 140 * 60))",
