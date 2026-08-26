@@ -3,6 +3,8 @@ import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { isIncognitoSessionKey } from "../../../routing/session-key.js";
 import { resolveUserPath } from "../../../utils.js";
 import { resolveAgentDir } from "../../agent-scope-config.js";
+import { ensureAuthProfileStore } from "../../auth-profiles.js";
+import { createModelAuthAvailabilityResolver } from "../../model-auth-availability.js";
 import { findModelCatalogEntry } from "../../model-catalog-lookup.js";
 import type { ModelCatalogEntry } from "../../model-catalog.types.js";
 import { splitTrailingAuthProfile } from "../../model-ref-profile.js";
@@ -126,6 +128,28 @@ async function resolveSpawnModelError(params: {
     if (!knownProvider) {
       return {
         error: `sessions_spawn model "${requestedModel}" is not usable: unknown model provider "${resolvedProvider}"`,
+      };
+    }
+  }
+  const explicitProfile = splitTrailingAuthProfile(requestedModel).profile;
+  if (explicitProfile) {
+    const authStore = ensureAuthProfileStore(params.targetAgentDir, {
+      allowKeychainPrompt: false,
+      config: cfg,
+      readOnly: true,
+    });
+    const auth = createModelAuthAvailabilityResolver({
+      cfg,
+      authStore,
+      agentDir: params.targetAgentDir,
+    }).evaluateModelAuth(resolved.ref.provider, {
+      modelId: resolved.ref.model,
+      lockedProfileId: explicitProfile,
+      ...(entry ? { observedRoutes: [{ api: entry.api, baseUrl: entry.baseUrl }] } : {}),
+    });
+    if (auth.availability !== true || auth.selectedProfileId !== explicitProfile) {
+      return {
+        error: `sessions_spawn auth profile "${explicitProfile}" is unavailable or incompatible with provider "${resolved.ref.provider}".`,
       };
     }
   }

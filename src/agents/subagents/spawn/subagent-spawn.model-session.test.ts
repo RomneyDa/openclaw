@@ -173,6 +173,7 @@ describe("spawnSubagentDirect runtime model persistence", () => {
         profiles: {
           "openai:default": { type: "api_key", provider: "openai", key: "sk-default" },
           "openai:work": { type: "api_key", provider: "openai", key: "sk-test" },
+          "anthropic:work": { type: "api_key", provider: "anthropic", key: "sk-other" },
         },
         order: { openai: ["openai:default", "openai:work"] },
       },
@@ -249,6 +250,19 @@ describe("spawnSubagentDirect runtime model persistence", () => {
         return { ok: true };
       },
     );
+
+    for (const profileId of ["openai:missing", "anthropic:work"]) {
+      const rejected = await spawnWithProfile(
+        { task: "reject selected credentials", agentId: "worker", model: `approved@${profileId}` },
+        { agentSessionKey: "agent:main:main" },
+      );
+      expect(rejected).toMatchObject({
+        status: "error",
+        error: expect.stringContaining(`auth profile "${profileId}" is unavailable`),
+      });
+      expect(persistedStore).toBeUndefined();
+      expect(dedicatedCallGatewayMock).not.toHaveBeenCalled();
+    }
 
     const result = await spawnWithProfile(
       { task: "use selected credentials", agentId: "worker", model: "approved@openai:work" },
