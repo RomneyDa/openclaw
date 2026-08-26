@@ -657,10 +657,12 @@ jobs:
           fi
 
           job_timeout_seconds=$((180 * 60))
+          # GitHub's job timeout starts before the first step; reserve runner/action startup too.
+          pre_step_reserve_seconds=$((5 * 60))
           finalization_reserve_seconds=$((30 * 60))
           timeout_kill_grace_seconds=30
           elapsed_setup_seconds=$(($(date +%s) - QA_JOB_STARTED_AT_SECONDS))
-          remaining_child_seconds=$((job_timeout_seconds - elapsed_setup_seconds - finalization_reserve_seconds - timeout_kill_grace_seconds))
+          remaining_child_seconds=$((job_timeout_seconds - pre_step_reserve_seconds - elapsed_setup_seconds - finalization_reserve_seconds - timeout_kill_grace_seconds))
           profile_timeout_seconds=$((remaining_child_seconds < 140 * 60 ? remaining_child_seconds : 140 * 60))
 
           qa_exit_code=0

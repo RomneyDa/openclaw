@@ -8272,12 +8272,12 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
   );
 
   it.skipIf(process.platform !== "linux")(
-    "subtracts elapsed setup while preserving the QA evidence finalization reserve",
+    "subtracts elapsed setup and pre-step time while preserving the QA evidence finalization reserve",
     () => {
       const result = runQaProfileTimeoutFixture("kill", 75 * 60);
       expect(result.commandStatus, `${result.stdout}\n${result.stderr}`).toBe(0);
-      expect(result.profileTimeoutSeconds).toBeGreaterThanOrEqual(75 * 60 - 32);
-      expect(result.profileTimeoutSeconds).toBeLessThanOrEqual(75 * 60 - 30);
+      expect(result.profileTimeoutSeconds).toBeGreaterThanOrEqual(70 * 60 - 32);
+      expect(result.profileTimeoutSeconds).toBeLessThanOrEqual(70 * 60 - 30);
       expect(result.status).toMatchObject({
         exitCode: 137,
         timedOut: true,
@@ -8651,7 +8651,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       'core.exportVariable("QA_JOB_STARTED_AT_SECONDS"',
     );
     expect(runProfileStep.run).toContain(
-      "remaining_child_seconds=$((job_timeout_seconds - elapsed_setup_seconds - finalization_reserve_seconds - timeout_kill_grace_seconds))",
+      "remaining_child_seconds=$((job_timeout_seconds - pre_step_reserve_seconds - elapsed_setup_seconds - finalization_reserve_seconds - timeout_kill_grace_seconds))",
     );
     expect(runProfileStep.run).toContain(
       "profile_timeout_seconds=$((remaining_child_seconds < 140 * 60 ? remaining_child_seconds : 140 * 60))",
