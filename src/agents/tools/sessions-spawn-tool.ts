@@ -20,6 +20,7 @@ import {
   formatAcpInheritedToolAllowError,
   formatAcpInheritedToolDenyError,
 } from "../inherited-tool-deny.js";
+import { splitTrailingAuthProfile } from "../model-ref-profile.js";
 import { optionalStringEnum } from "../schema/typebox.js";
 import type { SpawnedToolContext } from "../spawned-context.js";
 import { getSubagentDeliveryBacklogPressure } from "../subagents/registry/subagent-registry.js";
@@ -177,7 +178,7 @@ function createSessionsSpawnToolSchema(params: {
     model: Type.Optional(
       Type.String({
         description:
-          "Child model override. Append @<auth-profile-id> to require that exact credential profile for the child run.",
+          "Child model override. For native subagents, append @<auth-profile-id> to require that exact credential profile.",
       }),
     ),
     runTimeoutSeconds: Type.Optional(
@@ -423,6 +424,11 @@ export function createSessionsSpawnTool(
       const requestedAgentId = readToolStringParam(params, "agentId");
       const resumeSessionId = readToolStringParam(params, "resumeSessionId");
       const modelOverride = normalizeToolModelOverride(readToolStringParam(params, "model"));
+      if (runtime === "acp" && splitTrailingAuthProfile(modelOverride ?? "").profile) {
+        throw new ToolInputError(
+          'sessions_spawn model auth-profile suffixes support runtime="subagent" only.',
+        );
+      }
       const thinkingOverrideRaw = readToolStringParam(params, "thinking");
       const cwd = readToolStringParam(params, "cwd");
       const mode = params.mode === "run" || params.mode === "session" ? params.mode : undefined;
