@@ -70,6 +70,9 @@ function buildDirectChildSessionPatch(patch: Record<string, unknown>): Partial<S
   if (authProfileOverride) {
     entry.authProfileOverride = authProfileOverride;
     entry.authProfileOverrideSource = patch.authProfileOverrideSource === "auto" ? "auto" : "user";
+    if (patch.authProfileOverrideRequired === true) {
+      entry.authProfileOverrideRequired = true;
+    }
   }
   if (patch.fastMode === true || patch.fastMode === false || patch.fastMode === "auto") {
     entry.fastMode = patch.fastMode;

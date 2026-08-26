@@ -343,6 +343,7 @@ export async function resolveSubagentChildPlan(params: {
           ...modelPlan.initialSessionPatch,
           authProfileOverride: explicitModelSelection.profile,
           authProfileOverrideSource: "user" as const,
+          authProfileOverrideRequired: true,
         },
       }
     : modelPlan;

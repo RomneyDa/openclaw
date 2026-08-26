@@ -283,6 +283,7 @@ describe("spawnSubagentDirect runtime model persistence", () => {
       modelOverrideSource: "user",
       authProfileOverride: "openai:work",
       authProfileOverrideSource: "user",
+      authProfileOverrideRequired: true,
     });
     expect(attemptedRun).toEqual({
       provider: "openai",
