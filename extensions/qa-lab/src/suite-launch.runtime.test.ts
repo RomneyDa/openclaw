@@ -2299,6 +2299,37 @@ describe("qa suite runtime launcher", () => {
     );
   });
 
+  it("does not attribute Docker preparation failure to completed prebuilt scripts", async () => {
+    vi.stubEnv("OPENCLAW_E2E_USE_PREBUILT_DIST", "1");
+    const repoRoot = await makeTempRepo("qa-suite-prebuilt-docker-prep-failure-");
+    prepareDockerE2eEnvironment.mockRejectedValueOnce(new Error("candidate pack failed"));
+
+    const result = await runQaSuite({
+      repoRoot,
+      scenarioIds: ["docker-npm-onboard-channel-agent", "gateway-smoke"],
+    });
+
+    expect(runQaTestFileScenarios).toHaveBeenCalledTimes(1);
+    expect(runQaTestFileScenarios).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scenarios: [expect.objectContaining({ id: "gateway-smoke" })],
+      }),
+    );
+    expect(result.result.scenarios).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "Gateway smoke evidence", status: "pass" }),
+        expect.objectContaining({
+          name: "Docker npm onboard channel agent",
+          status: "fail",
+          details: expect.stringContaining("candidate pack failed"),
+        }),
+      ]),
+    );
+    expect(
+      result.result.scenarios.filter((scenario) => scenario.name === "Gateway smoke evidence"),
+    ).toEqual([expect.objectContaining({ status: "pass" })]);
+  });
+
   it("reuses the prepared Docker env object when a script partition retries", async () => {
     const repoRoot = await makeTempRepo("qa-suite-docker-prep-retry-");
     const preparedEnv = Object.freeze({ OPENCLAW_CURRENT_PACKAGE_TGZ: "/tmp/candidate.tgz" });

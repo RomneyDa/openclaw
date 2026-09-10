@@ -1362,8 +1362,12 @@ async function runUnifiedQaSuite(params: {
         scenarios: scriptScenarios,
       });
     } catch (error) {
+      const pendingScriptScenarios = [
+        ...serialScriptPartitionTasks,
+        ...(overlapParallelScripts ? [] : parallelScriptPartitionTasks),
+      ].flatMap((task) => task.scenarios);
       scriptPreparationFailure = capturePartitionFailure(
-        { channelId: transportId, scenarios: scriptScenarios },
+        { channelId: transportId, scenarios: pendingScriptScenarios },
         new Error(`Docker candidate preparation failed: ${formatErrorMessage(error)}`),
         false,
       );
